@@ -126,9 +126,10 @@ if submit_btn:
 
                 # Better AI Reasoning Prompt
                 reasoning_prompt = (
-                    f"Based on the resume summary:\n'{short_summary}'\n\n"
-                    f"And the job description:\n'{job_desc}'\n\n"
-                    f"Write 2-3 convincing sentences explaining why this candidate is a good fit for the role."
+                    f"You are a hiring assistant.\n\n"
+                    f"Here is a job description:\n{job_desc}\n\n"
+                    f"Here is a summary of a candidate’s resume:\n{short_summary}\n\n"
+                    f"Explain in 3-4 clear sentences why this candidate would be a strong match for this job."
                 )
                 reasoning = summarizer(reasoning_prompt, max_length=100, min_length=40, do_sample=False)[0]['summary_text']
 
