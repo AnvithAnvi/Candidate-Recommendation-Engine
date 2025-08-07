@@ -1,7 +1,7 @@
 streamlit
 sentence-transformers
+pymupdf
+matplotlib
 transformers
 torch
-docx
-PyMuPDF
-matplotlib
+python-docx
