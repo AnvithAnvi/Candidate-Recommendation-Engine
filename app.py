@@ -1,5 +1,3 @@
-# app.py
-
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
@@ -58,8 +56,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🔍 Candidate Recommendation Engine (Fast & Lightweight)")
-st.caption("Match resumes to job descriptions using AI-powered semantic search and justifications.")
+st.title("🔍 Candidate Recommendation Engine (AI Enhanced)")
+st.caption("Match resumes to job descriptions using embeddings and AI-generated justifications.")
 
 # Two-column layout
 col1, col2 = st.columns([3, 2])
@@ -106,7 +104,7 @@ if submit_btn:
             job_embedding = model.encode(job_desc, convert_to_tensor=True)
             results = []
 
-            for file in uploaded_files[:5]:  # Limit to 5 for faster processing
+            for file in uploaded_files[:5]:  # Limit to 5 resumes
                 text = extract_resume_text(file)
                 if not text.strip():
                     continue
@@ -122,12 +120,17 @@ if submit_btn:
                 else:
                     tag = "🔴 Low Match"
 
-                # Summarize text (first 1000 characters)
-                short_summary = summarizer(text[:1000], max_length=100, min_length=30, do_sample=False)[0]['summary_text']
+                # Better AI Summary Prompt
+                summary_prompt = f"Summarize this candidate’s professional experience and education:\n{text[:2000]}"
+                short_summary = summarizer(summary_prompt, max_length=120, min_length=40, do_sample=False)[0]['summary_text']
 
-                # Explain why good match
-                reasoning_prompt = f"Given this resume: {short_summary}, explain why this person is a great fit for the following role: {job_desc}"
-                reasoning = summarizer(reasoning_prompt, max_length=80, min_length=30, do_sample=False)[0]['summary_text']
+                # Better AI Reasoning Prompt
+                reasoning_prompt = (
+                    f"Based on the resume summary:\n'{short_summary}'\n\n"
+                    f"And the job description:\n'{job_desc}'\n\n"
+                    f"Write 2-3 convincing sentences explaining why this candidate is a good fit for the role."
+                )
+                reasoning = summarizer(reasoning_prompt, max_length=100, min_length=40, do_sample=False)[0]['summary_text']
 
                 results.append({
                     "name": file.name,
