@@ -1,3 +1,5 @@
+# Optimized app.py for Streamlit Community Cloud
+
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
@@ -8,17 +10,18 @@ import matplotlib
 matplotlib.use('Agg')
 
 # ----------------------------
-# Load Summarizer Model (BART)
+# Load Lightweight Summarizer Model
 # ----------------------------
 @st.cache_resource
 def load_summarizer():
-    return pipeline("summarization", model="facebook/bart-large-cnn")
+    return pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
 
 summarizer = load_summarizer()
 
 # ----------------------------
-# Elaborate + Short Summarization Logic
+# Utility Functions
 # ----------------------------
+
 def chunk_text(text, max_chunk=1000):
     paragraphs = text.split('\n')
     chunks = []
@@ -33,27 +36,32 @@ def chunk_text(text, max_chunk=1000):
         chunks.append(chunk.strip())
     return chunks
 
-def summarize_resume(text, summary_type="Elaborate (paragraph)"):
+def summarize(text):
     try:
-        if summary_type == "Short (bullet points)":
-            trimmed = text[:1000]
-            result = summarizer(
-                f"Summarize this resume into 3-5 bullet points: {trimmed}",
-                max_length=150, min_length=60, do_sample=False
-            )
-            return result[0]['summary_text']
-        else:
-            chunks = chunk_text(text, max_chunk=1000)
-            summaries = []
-            for chunk in chunks:
-                result = summarizer(chunk, max_length=250, min_length=100, do_sample=False)
-                summaries.append(result[0]['summary_text'])
-            return "\n\n".join(summaries)
+        trimmed = text[:1000]
+        result = summarizer(trimmed, max_length=120, min_length=40, do_sample=False)
+        return result[0]['summary_text']
     except Exception as e:
-        return f"⚠️ Error generating summary: {e}"
+        return f"⚠️ Summary Error: {e}"
+
+def explain_fit(resume_text, job_desc):
+    try:
+        prompt = f"""
+        Here is a candidate resume:
+        {resume_text[:1000]}
+
+        And here is a job description:
+        {job_desc[:1000]}
+
+        Why is this candidate a strong match? Provide a concise 3-4 sentence explanation.
+        """
+        result = summarizer(prompt, max_length=120, min_length=50, do_sample=False)
+        return result[0]['summary_text']
+    except Exception as e:
+        return f"⚠️ Reasoning Error: {e}"
 
 # ----------------------------
-# Resume Parsing Functions
+# Resume Extraction
 # ----------------------------
 
 def extract_text_from_pdf(file):
@@ -82,26 +90,8 @@ def extract_resume_text(file):
 # ----------------------------
 
 st.set_page_config(page_title="Candidate Recommender", layout="wide")
-
-st.markdown("""
-    <style>
-    .main {background-color: #f8f9fa;}
-    .stButton > button {
-        background-color: #4CAF50;
-        color: white;
-        font-weight: bold;
-    }
-    .stTextArea textarea {
-        background-color: #ffffff;
-    }
-    .stFileUploader {
-        border: 2px dashed #4CAF50;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 st.title("🔍 Candidate Recommendation Engine")
-st.caption("Match resumes to job descriptions")
+st.caption("Match resumes to job descriptions using efficient AI summarization.")
 
 col1, col2 = st.columns([3, 2])
 
@@ -110,24 +100,14 @@ with col1:
     job_desc = st.text_area("Paste the job description:", height=250)
 
 with col2:
-    st.subheader("📄 Upload Resumes")
+    st.subheader("📤 Upload Resumes")
     uploaded_files = st.file_uploader(
-        "Supported formats: PDF, DOCX, TXT",
+        "Upload PDF, DOCX, or TXT resumes (Max 5 resumes recommended)",
         type=["pdf", "docx", "txt"],
-        accept_multiple_files=True,
-        help="You can upload multiple resumes."
+        accept_multiple_files=True
     )
 
-summary_type = st.selectbox(
-    "Choose summary type:",
-    options=["Elaborate (paragraph)", "Short (bullet points)"],
-    index=0,
-    help="Select how detailed the AI-generated summary should be."
-)
-
 submit_btn = st.button("🚀 Find Top Candidates", use_container_width=True)
-
-st.markdown("---")
 
 @st.cache_resource
 def load_model():
@@ -135,75 +115,44 @@ def load_model():
 
 model = load_model()
 
-# ----------------------------
-# Matching Logic
-# ----------------------------
-
 if submit_btn:
     if not job_desc:
         st.warning("⚠️ Please enter a job description.")
     elif not uploaded_files:
         st.warning("⚠️ Please upload at least one resume.")
     else:
-        st.success("✅ Analyzing resumes against the job description...")
-        job_embedding = model.encode(job_desc, convert_to_tensor=True)
-        results = []
+        with st.spinner("Analyzing resumes..."):
+            job_embedding = model.encode(job_desc, convert_to_tensor=True)
+            results = []
 
-        for file in uploaded_files:
-            text = extract_resume_text(file)
-            if not text.strip():
-                continue
+            for file in uploaded_files[:5]:  # Limit for performance
+                text = extract_resume_text(file)
+                if not text.strip():
+                    continue
 
-            resume_embedding = model.encode(text, convert_to_tensor=True)
-            score = util.cos_sim(job_embedding, resume_embedding).item()
+                resume_embedding = model.encode(text, convert_to_tensor=True)
+                score = util.cos_sim(job_embedding, resume_embedding).item()
 
-            if score >= 0.75:
-                tag = "🟢 High Match"
-            elif score >= 0.5:
-                tag = "🟡 Medium Match"
-            else:
-                tag = "🔴 Low Match"
+                tag = "🟢 High Match" if score >= 0.75 else "🟡 Medium Match" if score >= 0.5 else "🔴 Low Match"
+                summary = summarize(text)
+                reasoning = explain_fit(text, job_desc)
 
-            summary = summarize_resume(text, summary_type)
+                results.append({
+                    "name": file.name,
+                    "score": round(score, 3),
+                    "summary": summary,
+                    "reasoning": reasoning,
+                    "tag": tag,
+                    "text": text[:1000]
+                })
 
-            # AI Justification Summary
-            reasoning_prompt = f"""Given the following resume, explain why this candidate should be chosen over others for the job description.
+            top_candidates = sorted(results, key=lambda x: x['score'], reverse=True)
 
-Resume:
-{text[:1500]}
+        st.subheader("📊 Top Matches")
+        for i, res in enumerate(top_candidates, 1):
+            with st.expander(f"{i}. {res['name']} — Score: {res['score']} {res['tag']}", expanded=(i==1)):
+                st.markdown(f"**🧠 Summary:** {res['summary']}")
+                st.markdown(f"**🤖 Why a Great Fit:** {res['reasoning']}")
+                st.text_area("📄 Resume Preview", res['text'], height=160)
 
-Job Description:
-{job_desc[:1000]}
-"""
-            justification = summarize_resume(reasoning_prompt, summary_type)
-
-            results.append({
-                "name": file.name,
-                "score": round(score, 3),
-                "text": text[:1000],
-                "tag": tag,
-                "summary": summary,
-                "justification": justification
-            })
-
-        top_candidates = sorted(results, key=lambda x: x['score'], reverse=True)[:10]
-
-        st.subheader("📊 Top Candidate Matches")
-
-        if top_candidates:
-            for i, res in enumerate(top_candidates, 1):
-                with st.expander(f"{i}. {res['name']}  —  Score: {res['score']}  {res['tag']}", expanded=(i==1)):
-                    st.progress(res['score'])
-                    st.markdown(f"**Match Level:** {res['tag']}")
-                    st.markdown("**🧠 Resume Summary :**")
-                    st.write(res['summary'])
-                    st.markdown("**🤖 Why Choose This Candidate :**")
-                    st.write(res['justification'])
-                    st.markdown("**📄 Resume Preview:**")
-                    st.text_area("Preview", res['text'], height=180)
-        else:
-            st.warning("No valid resumes with content found.")
-
-        st.markdown("---")
-        
-        st.success("🎉 Done! Candidates ranked by similarity score.")
+        st.success("✅ Done! Candidates ranked by relevance.")
